@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 import os
-import PyPDF2
+import pypdf
 import google.generativeai as genai
 import streamlit as st
 from fpdf import FPDF
@@ -58,7 +58,8 @@ def normalize_text(text):
 
 def extract_pdf_text(uploaded_file):
     if uploaded_file is not None:
-        pdf_reader = PyPDF2.PdfReader(uploaded_file)
+        # Change from PyPDF2.PdfReader to pypdf.PdfReader
+        pdf_reader = pypdf.PdfReader(uploaded_file)
         text = ""
         for page in pdf_reader.pages:
             page_text = page.extract_text()
