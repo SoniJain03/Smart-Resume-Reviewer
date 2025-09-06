@@ -154,22 +154,53 @@ def save_review_as_pdf(review_text, filename="Resume_Review.pdf"):
     try:
         pdf = FPDF()
         pdf.add_page()
-        pdf.set_font("Arial", "B", 16)
+        
+        # Add a Unicode font that supports special characters
+        try:
+            # Try to use DejaVuSans which supports Unicode
+            pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
+            pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
+            pdf.set_font("DejaVu", "", 12)
+        except:
+            # Fallback to Arial if DejaVu not available
+            pdf.set_font("Arial", "", 12)
+        
+        # Header with bold font
+        try:
+            pdf.set_font("DejaVu", "B", 16)
+        except:
+            pdf.set_font("Arial", "B", 16)
         pdf.cell(0, 10, "Smart Resume Reviewer", ln=True, align="C")
-        pdf.set_font("Arial", "", 12)
+        
+        try:
+            pdf.set_font("DejaVu", "", 12)
+        except:
+            pdf.set_font("Arial", "", 12)
         pdf.cell(0, 10, "Developed by: Soni Jain & Srishti Vats", ln=True, align="C")
         pdf.cell(0, 10, f"Date: {datetime.now().strftime('%d-%m-%Y %H:%M')}", ln=True, align="C")
         pdf.ln(10)
-        pdf.set_font("Arial", "", 12)
         
-        # Simple text addition - let FPDF handle wrapping
-        pdf.multi_cell(0, 10, review_text)
+        # Clean the text of unsupported characters
+        import unicodedata
+        cleaned_text = ''.join(
+            c for c in review_text 
+            if unicodedata.category(c)[0] != 'C' or c in '\n\t\r'
+        )
+        
+        # Add the cleaned text
+        pdf.multi_cell(0, 10, cleaned_text)
         
         pdf.output(filename)
         return filename
     except Exception as e:
         st.error(f"Error creating PDF: {e}")
-        return "error.pdf"
+        # Fallback: create a simple text file instead
+        try:
+            with open(filename.replace('.pdf', '.txt'), 'w', encoding='utf-8') as f:
+                f.write(review_text)
+            return filename.replace('.pdf', '.txt')
+        except:
+            return "error.txt"
 # -------------------- Improved Keyword Matching -------------------- #
 
 def extract_keywords_from_jd(job_description):
