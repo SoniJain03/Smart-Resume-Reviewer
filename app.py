@@ -109,11 +109,11 @@ def normalize_text(text):
 def extract_pdf_text(uploaded_file):
     if uploaded_file is not None:
         try:
-            # Read the file bytes first
-            file_bytes = uploaded_file.read()
+            # Reset the file pointer to beginning
+            uploaded_file.seek(0)
             
-            # Use pypdf
-            pdf_reader = pypdf.PdfReader(file_bytes)
+            # Use pypdf with the file object directly
+            pdf_reader = pypdf.PdfReader(uploaded_file)
             text = ""
             for page in pdf_reader.pages:
                 page_text = page.extract_text()
@@ -162,29 +162,14 @@ def save_review_as_pdf(review_text, filename="Resume_Review.pdf"):
         pdf.ln(10)
         pdf.set_font("Arial", "", 12)
         
-        # Split text into lines that fit the page
-        for line in review_text.split("\n"):
-            if len(line) > 80:
-                # Split long lines
-                words = line.split()
-                current_line = ""
-                for word in words:
-                    if len(current_line) + len(word) + 1 < 80:
-                        current_line += word + " "
-                    else:
-                        pdf.multi_cell(0, 10, current_line)
-                        current_line = word + " "
-                if current_line:
-                    pdf.multi_cell(0, 10, current_line)
-            else:
-                pdf.multi_cell(0, 10, line)
+        # Simple text addition - let FPDF handle wrapping
+        pdf.multi_cell(0, 10, review_text)
         
         pdf.output(filename)
         return filename
     except Exception as e:
         st.error(f"Error creating PDF: {e}")
         return "error.pdf"
-
 # -------------------- Improved Keyword Matching -------------------- #
 
 def extract_keywords_from_jd(job_description):
