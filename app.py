@@ -9,9 +9,59 @@ from datetime import datetime
 import re
 from collections import Counter
 
-# -------------------- Load Environment -------------------- #
+# -------------------- Streamlit Layout Configuration -------------------- #
+st.set_page_config(
+    page_title="Smart Resume Reviewer",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS to fix layout issues
+st.markdown("""
+    <style>
+    .main .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+        padding-left: 3rem;
+        padding-right: 3rem;
+        max-width: 95%;
+    }
+    .stTextArea textarea {
+        min-height: 150px;
+    }
+    .css-1d391kg {
+        padding: 1rem;
+    }
+    /* Prevent horizontal overflow */
+    .element-container {
+        overflow-wrap: break-word;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# -------------------- Load Environment & API Configuration -------------------- #
 load_dotenv()
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+
+# Get API key from environment variables or Streamlit secrets
+def get_api_key():
+    # First try to get from Streamlit secrets (for cloud deployment)
+    if hasattr(st, 'secrets') and 'GOOGLE_API_KEY' in st.secrets:
+        return st.secrets['GOOGLE_API_KEY']
+    
+    # Then try to get from environment variables (for local development)
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if api_key:
+        return api_key
+    
+    # If neither works, return None
+    return None
+
+# Configure Gemini with the API key
+api_key = get_api_key()
+if api_key:
+    genai.configure(api_key=api_key)
+else:
+    st.error("❌ Google API key not found. Please set GOOGLE_API_KEY in your environment variables or Streamlit secrets.")
 
 # -------------------- Helper Functions -------------------- #
 
@@ -58,39 +108,82 @@ def normalize_text(text):
 
 def extract_pdf_text(uploaded_file):
     if uploaded_file is not None:
-        # Change from PyPDF2.PdfReader to pypdf.PdfReader
-        pdf_reader = pypdf.PdfReader(uploaded_file)
-        text = ""
-        for page in pdf_reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-        return text.strip()
+        try:
+            # Read the file bytes first
+            file_bytes = uploaded_file.read()
+            
+            # Use pypdf
+            pdf_reader = pypdf.PdfReader(file_bytes)
+            text = ""
+            for page in pdf_reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+            return text.strip()
+        except Exception as e:
+            st.error(f"Error reading PDF: {e}")
+            return ""
     else:
-        raise FileNotFoundError("No file uploaded")
+        return ""
+
+def safe_extract_pdf_text(uploaded_file):
+    try:
+        return extract_pdf_text(uploaded_file)
+    except Exception as e:
+        st.error(f"Error extracting PDF text: {e}")
+        return ""
 
 def get_gemini_response(input_prompt, resume_text, additional_prompt):
-    model = genai.GenerativeModel("models/gemini-2.5-flash")
-    full_prompt = f"{input_prompt}\nResume Content:\n{resume_text}\nAdditional Context:\n{additional_prompt}"
-    response = model.generate_content(contents=[{"text": full_prompt}])
-    return response.text
+    # Check if API key is configured
+    if not api_key:
+        return "❌ Error: Google API key not configured. Please set GOOGLE_API_KEY in your environment variables or Streamlit secrets."
+    
+    try:
+        # Truncate very long resume text to avoid token limits
+        if len(resume_text) > 10000:
+            resume_text = resume_text[:10000] + "... [truncated for length]"
+        
+        model = genai.GenerativeModel("models/gemini-2.5-flash")
+        full_prompt = f"{input_prompt}\nResume Content:\n{resume_text}\nAdditional Context:\n{additional_prompt}"
+        response = model.generate_content(contents=[{"text": full_prompt}])
+        return response.text
+    except Exception as e:
+        return f"❌ Error calling Gemini API: {str(e)}"
 
 def save_review_as_pdf(review_text, filename="Resume_Review.pdf"):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
-    pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
-    pdf.set_font("DejaVu", "B", 16)
-    pdf.cell(0, 10, "Smart Resume Reviewer", ln=True, align="C")
-    pdf.set_font("DejaVu", "", 12)
-    pdf.cell(0, 10, "Developed by: Soni Jain & Srishti Vats", ln=True, align="C")
-    pdf.cell(0, 10, f"Date: {datetime.now().strftime('%d-%m-%Y %H:%M')}", ln=True, align="C")
-    pdf.ln(10)
-    pdf.set_font("DejaVu", "", 12)
-    for line in review_text.split("\n"):
-        pdf.multi_cell(0, 10, line)
-    pdf.output(filename)
-    return filename
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", "B", 16)
+        pdf.cell(0, 10, "Smart Resume Reviewer", ln=True, align="C")
+        pdf.set_font("Arial", "", 12)
+        pdf.cell(0, 10, "Developed by: Soni Jain & Srishti Vats", ln=True, align="C")
+        pdf.cell(0, 10, f"Date: {datetime.now().strftime('%d-%m-%Y %H:%M')}", ln=True, align="C")
+        pdf.ln(10)
+        pdf.set_font("Arial", "", 12)
+        
+        # Split text into lines that fit the page
+        for line in review_text.split("\n"):
+            if len(line) > 80:
+                # Split long lines
+                words = line.split()
+                current_line = ""
+                for word in words:
+                    if len(current_line) + len(word) + 1 < 80:
+                        current_line += word + " "
+                    else:
+                        pdf.multi_cell(0, 10, current_line)
+                        current_line = word + " "
+                if current_line:
+                    pdf.multi_cell(0, 10, current_line)
+            else:
+                pdf.multi_cell(0, 10, line)
+        
+        pdf.output(filename)
+        return filename
+    except Exception as e:
+        st.error(f"Error creating PDF: {e}")
+        return "error.pdf"
 
 # -------------------- Improved Keyword Matching -------------------- #
 
@@ -164,7 +257,7 @@ def calculate_match_percentage(resume_text, job_description):
                         break
     
     # Calculate percentage
-    match_percentage = round((len(matched_keywords) / len(jd_keywords)) * 100, 2)
+    match_percentage = round((len(matched_keywords) / len(jd_keywords)) * 100, 2) if jd_keywords else 0
     
     return match_percentage, matched_keywords
 
@@ -181,7 +274,6 @@ def highlight_keywords(resume_text, keywords):
 
 # -------------------- Streamlit App -------------------- #
 
-st.set_page_config(page_title="Smart Resume Reviewer", layout="wide")
 st.title("📄 Smart Resume Reviewer")
 
 # Sidebar
@@ -212,42 +304,74 @@ with tab1:
         try:
             resume_text_review = extract_pdf_text(uploaded_file_review)
             with st.expander("Preview Resume Text"):
-                st.text_area("Resume Content", resume_text_review, height=200)
+                st.text_area("Resume Content", resume_text_review, height=200, key="resume_preview_1")
         except Exception as e:
             st.error(f"Error reading PDF: {e}")
 
     if st.button("Analyze Resume Review"):
         if uploaded_file_review and job_description_review.strip():
+            # Create placeholder for results to ensure they always show
+            result_placeholder = st.empty()
+            download_placeholder = st.container()
+            
             try:
-                resume_text_review = extract_pdf_text(uploaded_file_review)
-                review_prompt = """
-                You are an experienced HR professional with Tech Experience in Data Science, 
-                Full Stack Development, Big Data Engineering, and DevOps.
-                
-                Please review the provided resume against the job description. Provide:
-                1. Key strengths and alignment with the role
-                2. Areas for improvement or missing elements
-                3. Specific suggestions to better tailor the resume
-                4. Overall assessment of fit for the position
-                
-                Do NOT provide any numerical match percentage.
-                Be specific and provide actionable advice.
-                """
                 with st.spinner("Analyzing the resume with AI..."):
+                    resume_text_review = safe_extract_pdf_text(uploaded_file_review)
+                    if not resume_text_review:
+                        st.error("Failed to extract text from PDF")
+                        
+                    review_prompt = """
+                    You are an experienced HR with Tech Experience in Data Science, Full Stack Development, Big Data Engineering, or DevOps.
+                    Review the provided resume against the job description. Highlight strengths, weaknesses, and alignment with the role.
+                    Do NOT provide any numerical match percentage.
+                    """
                     response = get_gemini_response(review_prompt, resume_text_review, job_description_review)
                     time.sleep(1)
-                st.success("✅ Analysis Complete")
-                st.subheader("Resume Review Response:")
-                st.write(response)
                 
-                # Save and offer download
-                pdf_file = save_review_as_pdf(response)
-                st.download_button("Download Review as PDF", open(pdf_file, "rb").read(), 
-                                 file_name=pdf_file, mime="application/pdf")
-                st.download_button("Download Review as TXT", response, 
-                                 file_name="Resume_Review.txt", mime="text/plain")
+                # Display results
+                result_placeholder.success("✅ Analysis Complete")
+                st.subheader("Resume Review Response:")
+                
+                # Use expandable container for long responses
+                with st.expander("View Analysis Results", expanded=True):
+                    st.write(response)
+                
+                # DOWNLOAD BUTTONS - Always show these even if there was an error
+                with download_placeholder:
+                    col1, col2 = st.columns(2)
+                    try:
+                        pdf_file = save_review_as_pdf(response)
+                        with col1:
+                            st.download_button(
+                                "Download Review as PDF", 
+                                open(pdf_file, "rb").read() if pdf_file != "error.pdf" else b"", 
+                                file_name=pdf_file, 
+                                mime="application/pdf",
+                                key="pdf_download_1"
+                            )
+                        with col2:
+                            st.download_button(
+                                "Download Review as TXT", 
+                                response, 
+                                file_name="Resume_Review.txt", 
+                                mime="text/plain",
+                                key="txt_download_1"
+                            )
+                    except Exception as e:
+                        st.error(f"Error creating download files: {e}")
+                        
             except Exception as e:
                 st.error(f"Error during analysis: {e}")
+                # Still show download buttons even if analysis failed
+                with download_placeholder:
+                    st.warning("Analysis failed, but you can try to download any partial results")
+                    st.download_button(
+                        "Download Error Report", 
+                        f"Error: {str(e)}", 
+                        file_name="analysis_error.txt", 
+                        mime="text/plain",
+                        key="error_download_1"
+                    )
         else:
             st.warning("Please upload the resume and enter the job description.")
 
@@ -290,34 +414,74 @@ with tab2:
 
     if st.button("Analyze Match"):
         if uploaded_file_match and job_description_match.strip():
+            # Create placeholder for results to ensure they always show
+            result_placeholder = st.empty()
+            download_placeholder = st.container()
+            
             try:
-                resume_text_match = extract_pdf_text(uploaded_file_match)
-                match_prompt = """
-                You are a skilled ATS (Applicant Tracking System) scanner and HR professional.
-                Evaluate the resume against the job description and provide:
-                
-                1. Missing keywords and skills from the job description
-                2. Specific suggestions to improve ATS compatibility
-                3. Strengths and alignment with the role
-                4. Final thoughts and recommendations
-                
-                Do NOT provide any numerical match percentage.
-                Focus on actionable insights and specific improvements.
-                """
                 with st.spinner("Analyzing resume match with AI..."):
+                    resume_text_match = safe_extract_pdf_text(uploaded_file_match)
+                    if not resume_text_match:
+                        st.error("Failed to extract text from PDF")
+                        
+                    match_prompt = """
+                    You are a skilled ATS (Applicant Tracking System) scanner and HR professional.
+                    Evaluate the resume against the job description and provide:
+                    
+                    1. Missing keywords and skills from the job description
+                    2. Specific suggestions to improve ATS compatibility
+                    3. Strengths and alignment with the role
+                    4. Final thoughts and recommendations
+                    
+                    Do NOT provide any numerical match percentage.
+                    Focus on actionable insights and specific improvements.
+                    """
                     response = get_gemini_response(match_prompt, resume_text_match, job_description_match)
                     time.sleep(1)
-                st.success("✅ Match Analysis Complete")
-                st.subheader("Resume Match Response:")
-                st.write(response)
                 
-                # Save and offer download
-                pdf_file = save_review_as_pdf(response, "Resume_Match_Report.pdf")
-                st.download_button("Download Match Report as PDF", open(pdf_file, "rb").read(), 
-                                 file_name=pdf_file, mime="application/pdf")
-                st.download_button("Download Match Report as TXT", response, 
-                                 file_name="Resume_Match.txt", mime="text/plain")
+                # Display results
+                result_placeholder.success("✅ Match Analysis Complete")
+                st.subheader("Resume Match Response:")
+                
+                # Use expandable container for long responses
+                with st.expander("View Match Analysis Results", expanded=True):
+                    st.write(response)
+                
+                # DOWNLOAD BUTTONS - Always show these
+                with download_placeholder:
+                    col1, col2 = st.columns(2)
+                    try:
+                        pdf_file = save_review_as_pdf(response, "Resume_Match_Report.pdf")
+                        with col1:
+                            st.download_button(
+                                "Download Match Report as PDF", 
+                                open(pdf_file, "rb").read() if pdf_file != "error.pdf" else b"", 
+                                file_name=pdf_file, 
+                                mime="application/pdf",
+                                key="pdf_download_2"
+                            )
+                        with col2:
+                            st.download_button(
+                                "Download Match Report as TXT", 
+                                response, 
+                                file_name="Resume_Match.txt", 
+                                mime="text/plain",
+                                key="txt_download_2"
+                            )
+                    except Exception as e:
+                        st.error(f"Error creating download files: {e}")
+                        
             except Exception as e:
-                st.error(f"Error during analysis: {e}")
+                st.error(f"Error during match analysis: {e}")
+                # Still show download buttons even if analysis failed
+                with download_placeholder:
+                    st.warning("Analysis failed, but you can try to download any partial results")
+                    st.download_button(
+                        "Download Error Report", 
+                        f"Error: {str(e)}", 
+                        file_name="match_error.txt", 
+                        mime="text/plain",
+                        key="error_download_2"
+                    )
         else:
             st.warning("Please upload the resume and enter the job description.")
