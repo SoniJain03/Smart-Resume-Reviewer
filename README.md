@@ -2,6 +2,8 @@
 
 An LLM-powered web application that reviews resumes and provides tailored, constructive feedback for a specific job role. The tool helps job seekers optimize their resumes by aligning them with job descriptions and industry expectations using the power of Large Language Models (LLMs).
 
+![project photo](https://github.com/user-attachments/assets/19b48b18-8297-44dd-820b-324d0c208602)
+
 ## Goal
 
 To assist job seekers in improving their resumes by:
