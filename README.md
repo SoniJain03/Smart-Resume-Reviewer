@@ -79,31 +79,31 @@ pydantic, fastapi, typer (optional, structured APIs & CLI)
 
 1. Clone the repository:
     
-git clone 
+git clone https://github.com/SoniJain03/Smart-Resume-Reviewer/tree/master
 cd smart-resume-reviewer
 Create a virtual environment (recommended):
 
-bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-Install dependencies:
 
-bash
+2. Install dependencies:
+
 pip install -r requirements.txt
+
 Key dependencies include: streamlit, google-generativeai, PyPDF2, python-dotenv
 
-Set up your API key:
+3. Set up your API key:
 
 Obtain an API key from Google AI Studio.
 
 Create a file named .env in the project root.
 
-Add your key to the file:
+4. Add your key to the file:
 
-text
 GOOGLE_API_KEY=your_actual_api_key_here
-Run the application:
 
-bash
+5. Run the application:
+
 streamlit run app.py
+
 The application will open in your default web browser.
